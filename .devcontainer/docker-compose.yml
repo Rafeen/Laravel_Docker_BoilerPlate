@@ -1,0 +1,123 @@
+version: '3.8'
+
+#Docker Networks
+networks:
+  laravel:
+    driver: bridge
+
+#Volumes
+volumes:
+  dbdata:
+    driver: local
+
+# Workflow
+services:
+  nginx:
+    build:
+      context: ../.devcontainer/containers/nginx
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME}_nginx
+    ports:
+      - "8080:80"
+      # Port for xdebug (ensure this matches the remote_port in the xdebug.ini)
+      - "9001:9001"
+    volumes:
+      - ../src:/var/www/html:delegated
+    depends_on:
+      - php
+      - mysql
+    networks:
+      - laravel
+
+  mysql:
+    image: mysql:5.7
+    container_name: ${COMPOSE_PROJECT_NAME}_mysql
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      SERVICE_TAGS: dev
+      SERVICE_NAME: mysql
+    volumes:
+      - ./containers/mysql/my.cnf:/etc/mysql/my.cnf
+      - dbdata:/var/lib/mysql/
+    networks:
+      - laravel
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    container_name: ${COMPOSE_PROJECT_NAME}_phpmyadmin
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      PMA_HOST: mysql
+      PMA_USER: root
+      PMA_PASSWORD: root
+      PMA_PORT: 3306
+      PMA_ARBITRARY: 1
+    restart: unless-stopped
+    depends_on:
+      - mysql
+    ports:
+    - "8081:80"
+    volumes:
+      - /sessions
+    networks:
+      - laravel
+    links:
+      - mysql
+
+  php:
+    build:
+      context: ../.devcontainer/containers/php
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME}_php
+    volumes:
+      - ../src:/var/www/html:delegated
+      # Enable xdebug
+      - ./containers/php/xdebug.ini:/usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
+    ports:
+      - "9000:9000"
+    networks:
+      - laravel
+
+  composer:
+    build:
+      context: ../.devcontainer/containers/php/composer
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME}_composer
+    volumes:
+      - ../src:/var/www/html
+    working_dir: /var/www/html
+    depends_on:
+      - php
+    user: laravel
+    networks:
+      - laravel
+    entrypoint: ['composer', '--ignore-platform-reqs']
+
+  npm:
+    image: node:latest
+    container_name: ${COMPOSE_PROJECT_NAME}_npm
+    volumes:
+      - ../src:/var/www/html
+    working_dir: /var/www/html
+    entrypoint: ['npm']
+
+  artisan:
+    build:
+      context: ../.devcontainer/containers/php
+      dockerfile: Dockerfile
+    container_name: ${COMPOSE_PROJECT_NAME}_artisan
+    volumes:
+      - ../src:/var/www/html:delegated
+    depends_on:
+      - mysql
+    working_dir: /var/www/html
+    user: laravel
+    entrypoint: ['php', '/var/www/html/artisan']
+    networks:
+      - laravel
